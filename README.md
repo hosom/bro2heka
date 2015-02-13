@@ -5,6 +5,9 @@ This go program will parse a bro log header and generate a Lua script that can b
 
 Binaries for Windows and Linux are available in the releases.
 
+Special thanks to Michal Purzynski and MozDef for the example scripts that helped a ton. 
+You can find the examples I based my work off of at: https://github.com/jeffbryner/MozDef/tree/master/examples/heka-lua-bro
+
 ===============================================
 Building from source.
 ===============================================
