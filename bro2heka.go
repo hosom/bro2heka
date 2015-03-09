@@ -126,7 +126,8 @@ SOURCE HEADER USED TO GENERATE PARSING LOGIC:
 {{ $line }}{{ end }}
 ]]
 
-local l=require "lpeg"
+local dt = require "date_time"
+local l = require "lpeg"
 local string=require "string"
 l.locale(l)
 local space = l.space^0
@@ -175,7 +176,7 @@ function process_message()
 
 	local msg = {
 		Type = "{{.Path}}",
-		Timestamp = toNumber(matches[1]),
+		Timestamp = dt.seconds_to_ns(matches[1]),
 		Fields = {}
 	}
 
