@@ -7,6 +7,11 @@ import (
 	"strings"
 	"encoding/hex"
 	"text/template"
+	"flag"
+)
+
+const (
+	VERSION = "0.2"
 )
 
 type BroField struct {
@@ -27,8 +32,12 @@ type BroHeader struct {
 }
 
 func ReadBroHeader(filepath string) []string {
-	file, _ := os.Open(filepath)
+	file, err := os.Open(filepath)
 	defer file.Close()
+	if err != nil {
+		fmt.Println("Error while opening Bro log file.")
+		os.Exit(1)
+	}
 	scanner := bufio.NewScanner(file)
 
 	var lines []string
@@ -98,8 +107,18 @@ func GetType(field_type string) string {
 }
 
 func main() {
-	header := NewBroHeader(os.Args[1])
 
+	FilePath := flag.String("file", "/opt/bro/log/current/conn.log", 
+							"The logfile to use to generate the Lua script.")
+	version := flag.Bool("version", false, "Output version and exit.")
+	flag.Parse()
+
+	if *version {
+		fmt.Println(VERSION)
+		os.Exit(0)
+	}
+
+	header := NewBroHeader(*FilePath)
 	tmpl, _ := template.New("output").Parse(`
 --[[
 SOURCE HEADER USED TO GENERATE PARSING LOGIC:
@@ -113,25 +132,25 @@ l.locale(l)
 local space = l.space^0
 local sep = l.P{{.EscapedSeparator}}
 local elem = l.C((1-sep)^0)
-grammar = l.Ct(elem * (sep * elem)^0)
+local grammar = l.Ct(elem * (sep * elem)^0)
 
-function toString(value)
+local function toString(value)
 	if ( value == "{{.UnsetField}}" or value == "{{.EmptyField}}" ) then
 		return ""
 	end
 	return value
 end
 
-function toNumber(value)
+local function toNumber(value)
 	if ( value == "{{.UnsetField}}" or value == "{{.EmptyField}}" ) then
 		return 0
 	end
 	return tonumber(value)
 end
 
-function lastField(value)
+local function lastField(value)
 	-- Remove the last line return if one exists
-	if value ~= nil and string.len(value) > 1 and string.sub(value, -1) == "\n" then
+	if value and string.len(value) > 1 and string.sub(value, -1) == "\n" then
 		return string.sub(value, 1, -2) 
 	end
 	return value
@@ -139,32 +158,32 @@ end
 
 function process_message()
 	local log = read_message("Payload")
-	-- This default message is used so that heka's message matcher
-	-- can ignore with the following:
-	-- message_matcher = "( Type!='heka.all-report' && Type != 'IGNORE' )"
-	local msg = {
-		Type = "IGNORE",
-		Fields={}
-	}
 	local matches = grammar:match(log)
+
 	if not matches then
 		--Return 0 to avoid sending errors to heka's log.
 		--Return a message with IGNORE type to not match heka's message watcher
-		inject_message(msg)
+		inject_message({Type = "IGNORE", Fields = {}})
 		return 0
 	end
-	if string.sub(log,1,1)=='#' then
+	
+	if string.sub(log,1,1)=="#" then
 		--Ignore Bro's comment lines used to identify headers in log files.
-		inject_message(msg)
+		inject_message({Type = "IGNORE", Fields = {}})
 		return 0
 	end
 
-	msg['Type']='{{.Path}}'
-	msg['ts'] = toString(matches[1])
+	local msg = {
+		Type = "{{.Path}}",
+		Timestamp = toString(matches[1]),
+		Fields = {}
+	}
+
 	{{ range $idx, $field := .Fields }}
-	msg.Fields['{{ $field.Name }}'] = to{{ $field.FieldType }}(matches[{{$field.Index}}]){{ end }}
-	msg.Fields['{{ .LastField.Name }}'] = to{{ .LastField.FieldType }}(lastField(matches[{{ .LastField.Index }}]))
-	inject_message(msg)
+	msg.Fields["{{ $field.Name }}"] = to{{ $field.FieldType }}(matches[{{$field.Index}}]){{ end }}
+	msg.Fields["{{ .LastField.Name }}"] = to{{ .LastField.FieldType }}(lastField(matches[{{ .LastField.Index }}]))
+	local ok, err = pcall(inject_message, msg)
+	if not ok then return -1, err end
 	return 0
 end
 	`)
