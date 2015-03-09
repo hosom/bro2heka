@@ -175,7 +175,7 @@ function process_message()
 
 	local msg = {
 		Type = "{{.Path}}",
-		Timestamp = toString(matches[1]),
+		Timestamp = toNumber(matches[1]),
 		Fields = {}
 	}
 
